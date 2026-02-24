@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,maximum-scale=1"
+    />
+    <title>Mapa</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      crossorigin=""
+    />
+    <style>
+      html,
+      body,
+      #map {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      .leaflet-control-attribution {
+        font-size: 11px;
+      }
+      .drone-icon {
+        width: 24px;
+        height: 24px;
+        transform-origin: 50% 50%;
+      }
+      .drone-icon .arrow {
+        width: 0;
+        height: 0;
+        margin: 0 auto;
+        border-left: 8px solid transparent;
+        border-right: 8px solid transparent;
+        border-bottom: 16px solid #e63946;
+        transform-origin: 50% 60%;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      crossorigin=""
+    ></script>
+    <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+    <script>
+      const map = L.map("map").setView([40.4168, -3.7038], 5);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors",
+      }).addTo(map);
+
+      let marker = null;
+      let droneMarker = null;
+
+      function setDronePosition(lat, lng, headingDeg = 0) {
+        const latLng = L.latLng(lat, lng);
+        if (droneMarker) {
+          droneMarker.setLatLng(latLng);
+        } else {
+          const icon = L.divIcon({
+            className: "drone-icon",
+            html: "<div class='arrow'></div>",
+            iconSize: [24, 24],
+            iconAnchor: [12, 12],
+          });
+          droneMarker = L.marker(latLng, { icon }).addTo(map);
+        }
+        const el = droneMarker.getElement();
+        if (el) {
+          const arrow = el.querySelector(".arrow");
+          if (arrow) {
+            arrow.style.transform = `rotate(${headingDeg}deg)`;
+          }
+        }
+      }
+
+      new QWebChannel(qt.webChannelTransport, (channel) => {
+        const bridge = channel.objects.bridge;
+        map.on("click", (e) => {
+          const { lat, lng } = e.latlng;
+          if (marker) {
+            marker.setLatLng(e.latlng);
+          } else {
+            marker = L.marker(e.latlng).addTo(map);
+          }
+          bridge.sendCoordinates(lat, lng);
+        });
+      });
+
+      window.setDronePosition = setDronePosition;
+    </script>
+  </body>
+</html>

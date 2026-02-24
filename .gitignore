@@ -1,0 +1,21 @@
+# Ignorar todo por defecto
+*
+
+# Permitir carpetas para poder llegar a los archivos permitidos
+!*/
+
+# Mantener este archivo
+!.gitignore
+
+# Codigo fuente
+!*.py
+!*.pyw
+!*.qml
+!*.js
+!*.ts
+!*.html
+!*.css
+!*.c
+!*.cpp
+!*.h
+!*.hpp
