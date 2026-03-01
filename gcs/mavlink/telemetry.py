@@ -12,5 +12,11 @@ class TelemetrySample:
     heading_deg: float = 0.0
     has_fix: bool = False
     mode: str = "UNKNOWN"
+    armed: bool = False
+    last_ack_command: int | None = None
+    last_ack_result: int | None = None
+    last_ack_ts: float = 0.0
     target_system: int = 1
     target_component: int = 1
+    base_mode: int = 0
+    custom_mode: int = 0

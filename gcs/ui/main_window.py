@@ -4,7 +4,14 @@ from PySide6.QtCore import QTimer, QUrl, Slot
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWidgets import QGridLayout, QLabel, QLineEdit, QPushButton, QWidget
+from PySide6.QtWidgets import (
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QWidget,
+)
 
 from gcs.core.bridge import Bridge
 from gcs.mavlink.connection import MavlinkConnection
@@ -35,10 +42,14 @@ class MainWindow(QWidget):
         self.tx_ip_input = QLineEdit("172.31.30.232")
         self.tx_port_input = QLineEdit("18570")
         self.connect_button = QPushButton("Conectar")
+        self.arm_button = QPushButton("ARM")
+        self.goto_button = QPushButton("GO TO")
         self.land_button = QPushButton("LAND")
         self.takeoff_button = QPushButton("TAKEOFF")
         self.status_label = QLabel("Desconectado")
         self.mode_label = QLabel("Modo: UNKNOWN")
+        self.arm_button.setEnabled(False)
+        self.goto_button.setEnabled(False)
         self.land_button.setEnabled(False)
         self.takeoff_button.setEnabled(False)
 
@@ -48,8 +59,15 @@ class MainWindow(QWidget):
         layout.addWidget(self.rx_port_input, 0, 3)
         layout.addWidget(self.connect_button, 0, 4)
         layout.addWidget(self.status_label, 0, 5)
-        layout.addWidget(self.land_button, 0, 6)
-        layout.addWidget(self.takeoff_button, 0, 7)
+        action_bar = QWidget(self)
+        action_layout = QHBoxLayout(action_bar)
+        action_layout.setContentsMargins(0, 0, 0, 0)
+        action_layout.setSpacing(6)
+        action_layout.addWidget(self.arm_button)
+        action_layout.addWidget(self.goto_button)
+        action_layout.addWidget(self.land_button)
+        action_layout.addWidget(self.takeoff_button)
+        layout.addWidget(action_bar, 0, 6, 1, 3)
 
         layout.addWidget(QLabel("UDP TX IP:"), 1, 0)
         layout.addWidget(self.tx_ip_input, 1, 1)
@@ -59,15 +77,20 @@ class MainWindow(QWidget):
 
         self.lat_input = QLineEdit()
         self.lng_input = QLineEdit()
+        self.height_input = QLineEdit()
         self.lat_input.setReadOnly(True)
         self.lng_input.setReadOnly(True)
+        self.height_input.setReadOnly(True)
         self.lat_input.setPlaceholderText("Latitud")
         self.lng_input.setPlaceholderText("Longitud")
+        self.height_input.setPlaceholderText("Height (m)")
 
         layout.addWidget(QLabel("Latitud:"), 2, 0)
         layout.addWidget(self.lat_input, 2, 1)
         layout.addWidget(QLabel("Longitud:"), 2, 2)
         layout.addWidget(self.lng_input, 2, 3)
+        layout.addWidget(QLabel("Height (m):"), 2, 4)
+        layout.addWidget(self.height_input, 2, 5)
 
         self.web_view = QWebEngineView()
         self.web_view.setPage(WebPage(self.web_view))
@@ -79,10 +102,12 @@ class MainWindow(QWidget):
         html_path = Path(__file__).parent / "web" / "map.html"
         html_content = html_path.read_text(encoding="utf-8")
         self.web_view.setHtml(html_content, QUrl("https://app.local/"))
-        layout.addWidget(self.web_view, 3, 0, 1, 6)
+        layout.addWidget(self.web_view, 3, 0, 1, 8)
 
         self.bridge = Bridge()
         self.bridge.coordinatesChanged.connect(self.on_coordinates_changed)
+        self._pending_goto: tuple[float, float] | None = None
+        self._auto_zoomed = False
 
         channel = QWebChannel(self.web_view.page())
         channel.registerObject("bridge", self.bridge)
@@ -111,6 +136,8 @@ class MainWindow(QWidget):
         self.telemetry_timer.start()
 
         self.connect_button.clicked.connect(self.toggle_connection)
+        self.arm_button.clicked.connect(self.send_arm_disarm)
+        self.goto_button.clicked.connect(self.send_goto_to_marker)
         self.land_button.clicked.connect(self.send_land)
         self.takeoff_button.clicked.connect(self.send_takeoff)
 
@@ -122,12 +149,11 @@ class MainWindow(QWidget):
     def on_coordinates_changed(self, lat, lng):
         self.lat_input.setText(f"{lat:.6f}")
         self.lng_input.setText(f"{lng:.6f}")
-        if not self.mav_connection.is_connected():
-            self.status_label.setText("No conectado")
+        self._pending_goto = (lat, lng)
+        if not self.telemetry.is_running() or not self.mav_connection.is_connected():
+            self.status_label.setText("Marcador listo (sin conexión)")
             return
-        ok = self.telemetry.send_goto(lat, lng)
-        if not ok:
-            self.status_label.setText("Error enviando GO TO")
+        self.status_label.setText("Marcador listo")
 
     def set_drone_position(self, lat, lng, heading_deg=0.0):
         # Exposes Python -> JS updates for drone position.
@@ -143,8 +169,15 @@ class MainWindow(QWidget):
             else:
                 self.status_label.setText("Conectado (sin fix)")
         self.mode_label.setText(f"Modo: {sample.mode}")
+        self.arm_button.setText("DISARM" if sample.armed else "ARM")
+        self.height_input.setText(f"{sample.alt_m:.2f}")
         if not sample.has_fix:
             return
+        if not self._auto_zoomed:
+            self.web_view.page().runJavaScript(
+                f"window.setMapView({sample.lat:.6f}, {sample.lon:.6f}, 17);"
+            )
+            self._auto_zoomed = True
         self.lat_input.setText(f"{sample.lat:.6f}")
         self.lng_input.setText(f"{sample.lon:.6f}")
         self.set_drone_position(sample.lat, sample.lon, sample.heading_deg)
@@ -152,12 +185,15 @@ class MainWindow(QWidget):
     def toggle_connection(self):
         if self.telemetry.is_running():
             self.telemetry.stop()
+            self.mav_connection.close()
             self.status_label.setText("Desconectado")
             self.connect_button.setText("Conectar")
             self.rx_ip_input.setEnabled(True)
             self.rx_port_input.setEnabled(True)
             self.tx_ip_input.setEnabled(True)
             self.tx_port_input.setEnabled(True)
+            self.arm_button.setEnabled(False)
+            self.goto_button.setEnabled(False)
             self.land_button.setEnabled(False)
             self.takeoff_button.setEnabled(False)
             return
@@ -206,8 +242,41 @@ class MainWindow(QWidget):
         self.rx_port_input.setEnabled(False)
         self.tx_ip_input.setEnabled(False)
         self.tx_port_input.setEnabled(False)
+        self.arm_button.setEnabled(True)
+        self.goto_button.setEnabled(True)
         self.land_button.setEnabled(True)
         self.takeoff_button.setEnabled(True)
+
+    def send_arm_disarm(self):
+        if not self.telemetry.is_running() or not self.mav_connection.is_connected():
+            self.status_label.setText("No conectado")
+            return
+        sample = self.telemetry.latest()
+        if sample.armed:
+            ok = self.telemetry.send_disarm()
+            if not ok:
+                self.status_label.setText("Error enviando DISARM")
+        else:
+            ok = self.telemetry.send_arm()
+            if not ok:
+                self.status_label.setText("Error enviando ARM")
+
+    def send_goto_to_marker(self):
+        if self._pending_goto is None:
+            self.status_label.setText("Selecciona un marcador")
+            return
+        if not self.telemetry.is_running() or not self.mav_connection.is_connected():
+            self.status_label.setText("No conectado")
+            return
+        lat, lon = self._pending_goto
+        ok = self.telemetry.send_goto(lat, lon)
+        feedback = self.telemetry.last_command_feedback()
+        if not ok:
+            self.status_label.setText(feedback or "Error enviando GO TO")
+            print(f"[CMD] {feedback or 'GO TO rechazado'}")
+            return
+        self.status_label.setText(feedback or "GO TO enviado")
+        print(f"[CMD] {feedback or 'GO TO enviado'}")
 
     def send_land(self):
         if not self.mav_connection.is_connected():
@@ -218,13 +287,20 @@ class MainWindow(QWidget):
             self.status_label.setText("Error enviando LAND")
 
     def send_takeoff(self):
-        if not self.mav_connection.is_connected():
+        if not self.telemetry.is_running() or not self.mav_connection.is_connected():
             self.status_label.setText("No conectado")
             return
+        self.status_label.setText("Enviando TAKEOFF...")
         ok = self.telemetry.send_takeoff()
+        feedback = self.telemetry.last_command_feedback()
         if not ok:
-            self.status_label.setText("Error enviando TAKEOFF")
+            self.status_label.setText(feedback or "Error enviando TAKEOFF")
+            print(f"[CMD] {feedback or 'TAKEOFF rechazado'}")
+            return
+        self.status_label.setText(feedback or "TAKEOFF aceptado")
+        print(f"[CMD] {feedback or 'TAKEOFF aceptado'}")
     def closeEvent(self, event):
         self.telemetry.stop()
+        self.mav_connection.close()
         super().closeEvent(event)
 

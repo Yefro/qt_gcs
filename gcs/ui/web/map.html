@@ -49,10 +49,31 @@
     <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
     <script>
       const map = L.map("map").setView([40.4168, -3.7038], 5);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19,
-        attribution: "&copy; OpenStreetMap contributors",
-      }).addTo(map);
+      const baseOSM = L.tileLayer(
+        "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        {
+          maxZoom: 19,
+          attribution: "&copy; OpenStreetMap contributors",
+        }
+      );
+      const baseSat = L.tileLayer(
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        {
+          maxZoom: 19,
+          attribution: "Tiles &copy; Esri",
+        }
+      );
+      baseOSM.addTo(map);
+      L.control
+        .layers(
+          {
+            Mapa: baseOSM,
+            Satelital: baseSat,
+          },
+          {},
+          { position: "topright" }
+        )
+        .addTo(map);
 
       let marker = null;
       let droneMarker = null;
@@ -79,6 +100,10 @@
         }
       }
 
+      function setMapView(lat, lng, zoom = 17) {
+        map.setView([lat, lng], zoom, { animate: true });
+      }
+
       new QWebChannel(qt.webChannelTransport, (channel) => {
         const bridge = channel.objects.bridge;
         map.on("click", (e) => {
@@ -93,6 +118,7 @@
       });
 
       window.setDronePosition = setDronePosition;
+      window.setMapView = setMapView;
     </script>
   </body>
 </html>

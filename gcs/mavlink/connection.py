@@ -22,11 +22,16 @@ class MavlinkConnection:
         try:
             if self.endpoint.baudrate is None:
                 self._connection = mavutil.mavlink_connection(
-                    self.endpoint.connection_string
+                    self.endpoint.connection_string,
+                    source_system=self.endpoint.system_id,
+                    source_component=self.endpoint.component_id,
                 )
             else:
                 self._connection = mavutil.mavlink_connection(
-                    self.endpoint.connection_string, baud=self.endpoint.baudrate
+                    self.endpoint.connection_string,
+                    baud=self.endpoint.baudrate,
+                    source_system=self.endpoint.system_id,
+                    source_component=self.endpoint.component_id,
                 )
             print("[MAVLINK] Connection object created.")
         except Exception as exc:
