@@ -4,10 +4,18 @@ GCS en Qt/PySide6 con mapa web embebido y control MAVLink básico (ARM, LAND, TA
 
 ## Estructura rápida
 
-- UI principal: `gcs/ui/main_window.py`
+- UI principal (View): `gcs/ui/main_window.py`
+- ViewModel: `gcs/viewmodels/main_viewmodel.py`
 - Telemetría y comandos: `gcs/services/telemetry_service.py`
 - Conexión MAVLink: `gcs/mavlink/connection.py`
 - Mapa HTML: `gcs/ui/web/map.html`
+- Settings de conexión (JSON): `gcs/config/connection_settings.json`
+
+## Arquitectura (MVVM)
+
+- View (`MainWindow`) solo gestiona UI y eventos de usuario.
+- ViewModel (`MainViewModel`) orquesta estado, telemetría, conexión y comandos.
+- Servicios (`TelemetryService`, `MavlinkConnection`) encapsulan MAVLink y red.
 
 ## Diagramas
 
@@ -15,15 +23,17 @@ GCS en Qt/PySide6 con mapa web embebido y control MAVLink básico (ARM, LAND, TA
 
 ```mermaid
 flowchart LR
-  UI[UI Qt/PySide6\nMainWindow] -->|click mapa| Bridge[Bridge QtWebChannel]
+  UI["UI Qt/PySide6\nMainWindow View"] -->|click mapa| Bridge["Bridge QtWebChannel"]
   Bridge --> UI
-  UI -->|comandos| Telemetry[TelemetryService]
-  UI -->|config RX/TX| Conn[MavlinkConnection]
+  UI --> VM[MainViewModel]
+  VM -->|comandos| Telemetry[TelemetryService]
+  VM -->|config RX/TX| Conn[MavlinkConnection]
   Telemetry -->|mavutil| Conn
   Conn -->|UDP| PX4[(PX4 / SITL)]
   PX4 -->|MAVLink| Conn
   Conn -->|mensajes| Telemetry
-  Telemetry -->|estado| UI
+  Telemetry -->|estado| VM
+  VM -->|estado| UI
   UI -->|render| Map[map.html]
 ```
 

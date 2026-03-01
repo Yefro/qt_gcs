@@ -1,6 +1,7 @@
 import math
+import time
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
@@ -10,13 +11,20 @@ class ArtificialHorizon(QWidget):
         super().__init__(parent)
         self._pitch_deg = 0.0
         self._roll_deg = 0.0
-        self.setMinimumSize(240, 240)
+        self._target_pitch_deg = 0.0
+        self._target_roll_deg = 0.0
+        self._last_update_ts = time.monotonic()
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setMinimumSize(120, 120)
 
         self._sky = QColor(70, 130, 180)
         self._ground = QColor(160, 100, 60)
         self._line = QColor(240, 240, 240)
         self._frame = QColor(30, 30, 30)
         self._accent = QColor(255, 200, 40)
+        self._smoothing_timer = QTimer(self)
+        self._smoothing_timer.setInterval(33)
+        self._smoothing_timer.timeout.connect(self._step_smoothing)
 
     def pitch(self):
         return self._pitch_deg
@@ -40,6 +48,13 @@ class ArtificialHorizon(QWidget):
         self.setPitch(pitch_deg)
         self.setRoll(roll_deg)
 
+    def setTargetPitchRoll(self, pitch_deg, roll_deg):
+        self._target_pitch_deg = max(-90.0, min(90.0, float(pitch_deg)))
+        self._target_roll_deg = max(-180.0, min(180.0, float(roll_deg)))
+        if not self._smoothing_timer.isActive():
+            self._last_update_ts = time.monotonic()
+            self._smoothing_timer.start()
+
     def paintEvent(self, event):
         w = self.width()
         h = self.height()
@@ -50,7 +65,6 @@ class ArtificialHorizon(QWidget):
 
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.fillRect(self.rect(), Qt.black)
 
         # Clip to circular viewport
         circle_rect = QRectF(
@@ -123,6 +137,34 @@ class ArtificialHorizon(QWidget):
         painter.drawLine(QPointF(wing, 0), QPointF(radius * 0.1, 0))
         painter.drawLine(QPointF(0, 0), QPointF(0, radius * 0.1))
         painter.restore()
+
+    def _step_smoothing(self):
+        now = time.monotonic()
+        dt = max(0.0, now - self._last_update_ts)
+        self._last_update_ts = now
+        if dt <= 0.0:
+            return
+
+        tau = 0.12
+        alpha = 1.0 - math.exp(-dt / tau)
+
+        delta_roll = (self._target_roll_deg - self._roll_deg + 180.0) % 360.0 - 180.0
+        new_roll = self._roll_deg + delta_roll * alpha
+        new_pitch = self._pitch_deg + (self._target_pitch_deg - self._pitch_deg) * alpha
+
+        new_pitch = max(-90.0, min(90.0, new_pitch))
+        new_roll = max(-180.0, min(180.0, new_roll))
+
+        if abs(new_pitch - self._pitch_deg) < 0.1 and abs(delta_roll) < 0.1:
+            self._pitch_deg = self._target_pitch_deg
+            self._roll_deg = self._target_roll_deg
+            self.update()
+            self._smoothing_timer.stop()
+            return
+
+        self._pitch_deg = new_pitch
+        self._roll_deg = new_roll
+        self.update()
 
     @staticmethod
     def _circlePath(rect):

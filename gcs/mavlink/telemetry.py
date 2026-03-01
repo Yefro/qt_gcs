@@ -10,6 +10,9 @@ class TelemetrySample:
     vy_m_s: float = 0.0
     vz_m_s: float = 0.0
     heading_deg: float = 0.0
+    roll_deg: float = 0.0
+    pitch_deg: float = 0.0
+    yaw_deg: float = 0.0
     has_fix: bool = False
     mode: str = "UNKNOWN"
     armed: bool = False

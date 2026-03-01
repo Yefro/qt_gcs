@@ -70,6 +70,20 @@ class TelemetryService:
                     self._latest.target_system = src_sys
                     self._latest.target_component = src_comp
             return
+        if msg_type == "ATTITUDE_QUATERNION":
+            try:
+                q1 = float(getattr(msg, "q1", 1.0))
+                q2 = float(getattr(msg, "q2", 0.0))
+                q3 = float(getattr(msg, "q3", 0.0))
+                q4 = float(getattr(msg, "q4", 0.0))
+            except Exception:
+                return
+            roll_rad, pitch_rad, yaw_rad = self._quat_to_euler(q1, q2, q3, q4)
+            with self._lock:
+                self._latest.roll_deg = math.degrees(roll_rad)
+                self._latest.pitch_deg = math.degrees(pitch_rad)
+                self._latest.yaw_deg = math.degrees(yaw_rad)
+            return
         if msg_type != "GLOBAL_POSITION_INT":
             return
         lat = msg.lat / 1e7
@@ -505,6 +519,25 @@ class TelemetryService:
             return mavutil.mavlink.enums["MAV_RESULT"][int(result)].name
         except Exception:
             return str(result)
+
+    @staticmethod
+    def _quat_to_euler(q1: float, q2: float, q3: float, q4: float) -> tuple[float, float, float]:
+        # MAVLink ATTITUDE_QUATERNION uses (w, x, y, z) = (q1, q2, q3, q4)
+        w, x, y, z = q1, q2, q3, q4
+        sinr_cosp = 2.0 * (w * x + y * z)
+        cosr_cosp = 1.0 - 2.0 * (x * x + y * y)
+        roll = math.atan2(sinr_cosp, cosr_cosp)
+
+        sinp = 2.0 * (w * y - z * x)
+        if abs(sinp) >= 1.0:
+            pitch = math.copysign(math.pi / 2.0, sinp)
+        else:
+            pitch = math.asin(sinp)
+
+        siny_cosp = 2.0 * (w * z + x * y)
+        cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
+        yaw = math.atan2(siny_cosp, cosy_cosp)
+        return roll, pitch, yaw
 
     def _log(self, message: str):
         if self._verbose:

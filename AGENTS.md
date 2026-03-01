@@ -10,7 +10,7 @@ Mantener cambios pequeños, seguros y verificables. Prioriza correcciones de bug
 - Evitar cambios en `gcs/ui/web/map.html` salvo que el objetivo sea UI/Mapa.
 
 ## Flujo recomendado
-1. Leer/entender el flujo actual en `gcs/ui/main_window.py`, `gcs/services/telemetry_service.py`, `gcs/mavlink/connection.py`.
+1. Leer/entender el flujo actual en `gcs/ui/main_window.py`, `gcs/viewmodels/main_viewmodel.py`, `gcs/services/telemetry_service.py`, `gcs/mavlink/connection.py`.
 2. Cambios mínimos y localizados.
 3. Si hay riesgo de regresión, sugerir prueba manual.
 
